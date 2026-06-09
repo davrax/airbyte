@@ -270,15 +270,21 @@ class IncrementalNetsuiteStream(NetsuiteStream):
 
         slices = []
         state = self.get_state_value(stream_state)
-        start = datetime.strptime(state, NETSUITE_OUTPUT_DATETIME_FORMAT).date()
+        # Truncate to UTC midnight rather than calling .date(). NetSuite interprets
+        # bare date strings in the account's local timezone, so date-only bounds shift
+        # the window by up to UTC-offset hours and orphan records that fall between the
+        # sync run time and local midnight. UTC datetime strings are unambiguous.
+        start = datetime.strptime(state, NETSUITE_OUTPUT_DATETIME_FORMAT).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
         # handle abnormal state values
-        if start > date.today():
+        if start.date() > date.today():
             return slices
         else:
-            while start <= date.today():
+            while start.date() <= date.today():
                 next_day = start + timedelta(days=self.window_in_days)
-                slice_start = start.strftime(self.default_datetime_format)
-                slice_end = next_day.strftime(self.default_datetime_format)
+                slice_start = start.strftime(NETSUITE_OUTPUT_DATETIME_FORMAT)
+                slice_end = next_day.strftime(NETSUITE_OUTPUT_DATETIME_FORMAT)
                 yield {"start": slice_start, "end": slice_end}
                 start = next_day
 
