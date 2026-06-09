@@ -64,3 +64,15 @@ connectionSpecification:
       description: The amount of days used to query the data with date chunks. Set smaller value, if you have lots of data.
       order: 7
       default: 30
+    lookback_window_in_days:
+      type: integer
+      title: Lookback Window in Days
+      description: >
+        Number of days to re-query before the last cursor value on each sync.
+        NetSuite's query parameter interprets bare date strings in the account's
+        configured timezone (not UTC), so records modified between the sync run
+        time and the account's local midnight can fall outside the expected query
+        window. A lookback of 1 (default) ensures those records are always
+        captured on the following sync. Set to 0 to disable.
+      order: 8
+      default: 1

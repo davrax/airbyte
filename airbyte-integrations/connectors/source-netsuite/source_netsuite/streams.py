@@ -35,11 +35,13 @@ class NetsuiteStream(HttpStream, ABC):
         base_url: str,
         start_datetime: str,
         window_in_days: int,
+        lookback_window_in_days: int = 1,
     ):
         self.object_name = object_name
         self.base_url = base_url
         self.start_datetime = start_datetime
         self.window_in_days = window_in_days
+        self.lookback_window_in_days = lookback_window_in_days
         self.schemas = {}  # store subschemas to reduce API calls
         super().__init__(authenticator=auth)
 
@@ -270,17 +272,27 @@ class IncrementalNetsuiteStream(NetsuiteStream):
 
         slices = []
         state = self.get_state_value(stream_state)
-        start = datetime.strptime(state, NETSUITE_OUTPUT_DATETIME_FORMAT).date()
+        cursor_date = datetime.strptime(state, NETSUITE_OUTPUT_DATETIME_FORMAT).date()
         # handle abnormal state values
-        if start > date.today():
+        if cursor_date > date.today():
             return slices
-        else:
-            while start <= date.today():
-                next_day = start + timedelta(days=self.window_in_days)
-                slice_start = start.strftime(self.default_datetime_format)
-                slice_end = next_day.strftime(self.default_datetime_format)
-                yield {"start": slice_start, "end": slice_end}
-                start = next_day
+        # Step back by lookback_window_in_days to close the timezone dead zone.
+        # NetSuite's q parameter is handled by Oracle's N/query module, which
+        # interprets bare date strings in the account's configured timezone (not
+        # UTC). Records modified between the sync run time and the account's local
+        # midnight therefore fall outside both the previous and current day's query
+        # windows and are permanently orphaned. Re-querying the prior N days ensures
+        # they are captured on the next sync; filter_records_newer_than_state
+        # deduplicates against the cursor so already-synced records are not emitted.
+        # See also: source-shopify connector uses an identical pattern via
+        # lookback_window_in_days. Default is 1 day to cover any UTC offset.
+        start = cursor_date - timedelta(days=self.lookback_window_in_days)
+        while start <= date.today():
+            next_day = start + timedelta(days=self.window_in_days)
+            slice_start = start.strftime(self.default_datetime_format)
+            slice_end = next_day.strftime(self.default_datetime_format)
+            yield {"start": slice_start, "end": slice_end}
+            start = next_day
 
 
 class CustomIncrementalNetsuiteStream(IncrementalNetsuiteStream):
